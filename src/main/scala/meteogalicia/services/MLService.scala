@@ -1,26 +1,26 @@
 package meteogalicia.services
 
-import meteogalicia.model.CustomRow
-import org.apache.spark.internal.Logging
-import org.apache.spark.ml.clustering.{KMeans, KMeansModel}
-import org.apache.spark.ml.linalg.Vectors
+import meteogalicia.model.PollutionGases
+import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.streaming.dstream.DStream
 
-object MLService extends Logging {
+import scala.collection.mutable.ArrayBuffer
 
-  def trainKMeansModel(data: DataFrame): KMeansModel = {
+object MLService {
+
+  def trainKMeansModel(data: RDD[Vector]): KMeansModel = {
 
     val models = 2 to 20 map { k =>
       new KMeans()
         .setK(k)
-        .fit(data)
+        .run(data)
     }
 
     val costs = models.map(model => model.computeCost(data))
     val selected = elbowSelection(costs, 0.7)
-
-    logInfo("Selecting k-means model: " + models(selected).k)
 
     models(selected)
   }
@@ -39,15 +39,51 @@ object MLService extends Logging {
     k
   }
 
-  def getDistancesToCentroids(data: DataFrame, model: KMeansModel): RDD[Double] = {
-    model
-      .transform(data)
-      .rdd
-      .map(row => CustomRow(row))
-      .map(customRow => {
-        val centroid = model.clusterCenters(customRow.prediction)
-        Vectors.sqdist(centroid, customRow.features)
+  def getDistancesToCentroids(data: RDD[Vector], model: KMeansModel): RDD[Double] = {
+    data.map(instance => distToCentroids(instance, model))
+  }
+
+  def isAnomaly(pollutionGases: PollutionGases, model: KMeansModel, threshold: Double): Boolean = {
+    val featuresBuffer = ArrayBuffer[Double]()
+
+    featuresBuffer.append(pollutionGases.CO)
+    featuresBuffer.append(pollutionGases.NO)
+    featuresBuffer.append(pollutionGases.NO2)
+    featuresBuffer.append(pollutionGases.NOX)
+    featuresBuffer.append(pollutionGases.O3)
+    featuresBuffer.append(pollutionGases.SO2)
+
+    val features = Vectors.dense(featuresBuffer.toArray)
+
+    val distance = distToCentroids(features, model)
+
+    distance.>(threshold)
+  }
+
+  def distToCentroids(data: Vector, model: KMeansModel): Double = {
+    val centroid = model.clusterCenters(model.predict(data)) // if more than 1 center
+    Vectors.sqdist(data, centroid)
+  }
+
+  def detectAnomalies(sparkSession: SparkSession,
+                      stream: DStream[(String, PollutionGases)],
+                      model: KMeansModel,
+                      threshold: Double): DStream[(String, PollutionGases)] = {
+    stream
+      .filter(tuple => {
+        val pollutionGases: PollutionGases = tuple._2
+        isAnomaly(pollutionGases, model, threshold)
       })
   }
 
+  def loadModel(sparkSession: SparkSession): KMeansModel = {
+    KMeansModel.load(sparkSession.sparkContext, ConfigurationService.getModelPath)
+  }
+
+  def loadThreshold(sparkSession: SparkSession): Double = {
+    val rawData = sparkSession.sparkContext.textFile(ConfigurationService.getThresholdPath, 20)
+    val threshold = rawData.map { line => line.toDouble }.first()
+
+    threshold
+  }
 }

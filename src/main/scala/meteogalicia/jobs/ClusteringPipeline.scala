@@ -1,11 +1,13 @@
 package meteogalicia.jobs
 
-import meteogalicia.services.{MLService, Utils}
 import meteogalicia.services
-import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.util.MLWritable
+import meteogalicia.services.{MLService, Utils}
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.util.Saveable
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SparkSession}
+
+import scala.collection.mutable.ArrayBuffer
 
 object ClusteringPipeline extends App {
 
@@ -14,7 +16,7 @@ object ClusteringPipeline extends App {
     val transformedData = createFeaturesFromData(sparkSession, data)
     val (model, threshold) = trainAndGetThreshold(transformedData)
 
-    model.write.save(services.ConfigurationService.getModelPath)
+    model.save(sparkSession.sparkContext, services.ConfigurationService.getModelPath)
 
     Utils.saveThreshold(threshold, services.ConfigurationService.getThresholdPath)
   }
@@ -30,16 +32,25 @@ object ClusteringPipeline extends App {
     data
   }
 
-  def createFeaturesFromData(sparkSession: SparkSession, data: DataFrame): DataFrame = {
-    val inputFeatures = Array("CO", "NO", "NO2", "NOX", "O3", "SO2")
+  def createFeaturesFromData(sparkSession: SparkSession, data: DataFrame): RDD[Vector] = {
+    data
+      .select("CO", "NO", "NO2", "NOX", "O3", "SO2")
+      .rdd
+      .map(row => {
+        val buffer = ArrayBuffer[Double]()
 
-    new VectorAssembler()
-      .setInputCols(inputFeatures)
-      .setOutputCol("features")
-      .transform(data)
+        buffer.append(row.getAs[Double]("CO"))
+        buffer.append(row.getAs[Double]("NO"))
+        buffer.append(row.getAs[Double]("NO2"))
+        buffer.append(row.getAs[Double]("NOX"))
+        buffer.append(row.getAs[Double]("O3"))
+        buffer.append(row.getAs[Double]("SO2"))
+
+        Vectors.dense(buffer.toArray)
+      })
   }
 
-  def trainAndGetThreshold(data: DataFrame): (MLWritable, Double) = {
+  def trainAndGetThreshold(data: RDD[Vector]): (Saveable, Double) = {
     val model = MLService.trainKMeansModel(data)
     val distances: RDD[Double] = MLService.getDistancesToCentroids(data, model)
 
