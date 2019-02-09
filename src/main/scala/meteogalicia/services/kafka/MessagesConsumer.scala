@@ -20,7 +20,11 @@ object MessagesConsumer {
 
   def getPollutionStream(kafkaFeed: DStream[(String, String)]): DStream[(String, PollutionGases)] = {
     val pollutionStream = kafkaFeed.transform(inputRDD => {
-      inputRDD.map(input => Utils.parsePollutionInput(input._2))
+
+      inputRDD.map(input => {
+        println(input._2)
+        Utils.parsePollutionInput(input._2)
+      })
     })
 
     pollutionStream

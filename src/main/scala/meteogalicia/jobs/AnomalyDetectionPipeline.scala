@@ -38,10 +38,7 @@ object AnomalyDetectionPipeline extends App {
     })
   }
 
-  val sparkSession = SparkSession.builder()
-    .master("local[4]")
-    .appName("Anomaly detection")
-    .getOrCreate()
+  val sparkSession = SparkSession.builder().appName("Anomaly detection").getOrCreate()
 
   val batch_interval_ms = Milliseconds(ConfigurationService.getBatchInterval)
   val sparkStreamingContext = new StreamingContext(sparkSession.sparkContext, batch_interval_ms)

@@ -54,7 +54,7 @@ object ClusteringPipeline extends App {
     val model = MLService.trainKMeansModel(data)
     val distances: RDD[Double] = MLService.getDistancesToCentroids(data, model)
 
-    val threshold = distances.top(2000).last
+    val threshold = distances.top(20000).last
 
     (model, threshold)
   }

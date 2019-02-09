@@ -17,6 +17,7 @@ object MessagesProducer {
 
       partition.foreach(record => {
         val message = Utils.pollution_to_string(record._2, record._1)
+        println(message)
         producer.send(new ProducerRecord[String, String](topic, record._1, message))
       })
 

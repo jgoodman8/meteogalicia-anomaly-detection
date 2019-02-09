@@ -1,5 +1,7 @@
 package meteogalicia.services
 
+import java.io.{BufferedWriter, File, FileWriter}
+
 import meteogalicia.model.PollutionGases
 import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
@@ -20,9 +22,14 @@ object MLService {
     }
 
     val costs = models.map(model => model.computeCost(data))
-    val selected = elbowSelection(costs, 0.7)
+    val selectedK = elbowSelection(costs, 0.7)
 
-    models(selected)
+    val file = new File("resources/k")
+    val bufferWriter = new BufferedWriter(new FileWriter(file))
+    bufferWriter.write(selectedK.toString)
+    bufferWriter.close()
+
+    models(selectedK)
   }
 
   def elbowSelection(costs: Seq[Double], ratio: Double): Int = {
